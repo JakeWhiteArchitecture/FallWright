@@ -1,4 +1,4 @@
-# CladForge — working notes
+# Fallwright — working notes
 
 ## Pull requests
 
@@ -34,6 +34,22 @@ VENDOR_DIR=... PLAYWRIGHT_MODULE=... node tests/smoke.js  # browser, needs app.p
 
 Restart `app.py` after editing `templates/index.html` — Jinja caches the template and a
 stale one produces confusing browser failures.
+
+The CladForge suite (`test_chains`, `test_engine`, `test_export`, ...) stays and must keep
+passing unchanged: it guards the general frame, which Fallwright shares with CladForge.
+
+Where the CDNs are blocked, the smoke test's `VENDOR_DIR` wants
+`<dir>/pyodide` (the full 0.29.0 release from GitHub), `<dir>/three` and `<dir>/web-ifc`
+(`npm pack three@0.128.0 web-ifc@0.0.77`), `<dir>/wasm-wheels` (the IfcOpenShell wheel from
+raw.githubusercontent.com/IfcOpenShell/wasm-wheels) and `<dir>/pypi` (`pip download` lark,
+isodate, python-dateutil, typing_extensions, six).
+
+## Coordinates
+
+The scene is Three.js Y-up; both importers deliver Y-up vertices (web-ifc natively, the
+server reader turned on arrival). Only plan is recentred: `modelOffset` is in IFC axes and
+heights are never shifted, so a level in the scene is the model's own level. Frames are
+`{"origin", "u", "v", "n"}`; a roof frame has n = world Z.
 
 ## Runtime pins are a matched set
 

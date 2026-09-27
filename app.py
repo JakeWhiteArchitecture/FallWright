@@ -1,8 +1,8 @@
 """
-CladForge — Flask server.
+Fallwright — Flask server.
 
 Serves the UI and the Python engine sources, so Pyodide can import them in the
-browser. Everything else runs client-side: extraction, coursing, checks and both
+browser. Everything else runs client-side: extraction, the falls, checks and both
 exports. The one route that does real work is /api/import, the IfcOpenShell
 fallback for models web-ifc cannot build.
 """
@@ -22,7 +22,8 @@ app.config["MAX_CONTENT_LENGTH"] = 256 * 1024 * 1024
 
 PY_MODULES = ("cladding_constants", "cladding_primitives", "cladding_geometry", "cladding_booleans",
               "cladding_checks", "cladding_preview", "fabric_extract", "dxf_generator",
-              "ifc_generator")
+              "ifc_generator", "roof_constants", "roof_edges", "roof_extract", "roof_falls",
+              "roof_checks", "roof_geometry", "roof_preview", "roof_dxf")
 
 
 def _no_store(resp):

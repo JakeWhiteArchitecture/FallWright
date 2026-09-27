@@ -1,4 +1,4 @@
-/* CladForge — StairSmith design system with a teal accent */
+/* Fallwright — StairSmith design system with a teal accent (via CladForge) */
 :root {
     --accent: #2a9d8f; --accent-hover: #21867a; --bg: #1a1a2e; --panel: #16213e;
     --border: #0f3460; --text: #e0e0e0; --muted: #aaa; --hint: #888; --unit: #666;
@@ -117,27 +117,27 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .status-chip.ready { color: #4caf50; border-color: #4caf50; }
 .status-chip.busy { color: #ff9800; }
 
-#download-reminder, #chain-wizard, #course-dialog { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 2000; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
-#download-reminder.open, #chain-wizard.open, #course-dialog.open { display: flex; }
+#download-reminder, #roof-wizard { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 2000; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
+#download-reminder.open, #roof-wizard.open { display: flex; }
 .reminder-dialog { background: var(--panel); border: 1px solid #1a4a80; border-radius: 14px; width: 100%; max-width: 460px; padding: 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
 .reminder-heading { font-size: 16px; color: var(--accent); font-weight: 600; }
 .reminder-text { font-size: 13px; line-height: 1.6; color: var(--text); }
 
-/* Make chain: nothing is generated until the picked chain is built. */
+/* Build: nothing is generated until the picked roof is built. */
 .view-actions { position: absolute; top: 34px; right: 10px; z-index: 6; display: flex; gap: 8px; }
 #view-2d { padding: 9px 16px; border: 1px solid var(--accent); border-radius: 20px; background: rgba(22,33,62,0.92);
     color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,0.45); }
 #view-2d:hover:not(:disabled) { background: #1a4a80; }
 #view-2d:disabled { opacity: 0.4; cursor: default; }
-#make-chain { padding: 9px 16px; border: none;
+#make-roof { padding: 9px 16px; border: none;
     border-radius: 20px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
     cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,0.45); }
-#make-chain:hover { background: var(--accent-hover); }
+#make-roof:hover { background: var(--accent-hover); }
 .chain-pending { color: #ff9800; }
 .mini { padding: 3px 8px; font-size: 11px; background: var(--border); color: var(--text); border: none; border-radius: 3px; cursor: pointer; }
 .mini:hover { background: #1a4a80; }
 
-/* Edit mode: a built chain's setting-out, brought over the view by clicking its cladding. */
+/* Widgets over the view: placing outlets and gutter edges, and the cutting planes. */
 .edit-widget { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 6;
     background: rgba(22,33,62,0.96); border: 1px solid var(--accent); border-radius: 8px;
     padding: 10px 14px; width: 400px; max-width: calc(100% - 40px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -148,8 +148,9 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .wiz-step { font-size: 11px; color: var(--hint); white-space: nowrap; }
 .wiz-actions { display: flex; justify-content: space-between; gap: 10px; }
 .wiz-actions .btn { width: auto; min-width: 92px; padding: 8px 18px; }
-#course-dialog .wiz-actions { flex-wrap: wrap; gap: 8px; }
-#course-dialog .wiz-actions .btn { min-width: 0; padding: 8px 14px; }
+.edit-widget .wiz-actions { flex-wrap: wrap; gap: 8px; }
+.edit-widget .wiz-actions .btn { min-width: 0; padding: 7px 12px; }
+.edit-widget .btn-secondary.btn-sm { margin: 3px 0; }
 .wiz-option { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; padding: 12px 14px;
     margin-bottom: 8px; background: var(--bg); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; }
 .wiz-option:hover { border-color: var(--accent); }
@@ -166,7 +167,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
     .legend, .dim-overlay { font-size: 10px; }
 }
 
-/* 2D elevation: dimension labels over the flat view, typed over where they sit. */
+/* Plan view: labels over the flat view, typed over where they sit, and handles to drag. */
 .dim2d-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
 .dim2d { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; white-space: nowrap;
     font: 600 12px sans-serif; padding: 2px 7px; border-radius: 3px; color: #00ccff;
@@ -184,3 +185,29 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .dim2d-editor .d2-scope .turn-btn { flex: 1; padding: 4px 6px; font-size: 11px; }
 .dim2d-editor .d2-hint { width: 100%; font-size: 10px; color: var(--hint); }
 .dim2d-editor select { font-size: 11px; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+
+.built { color: #4caf50; }
+.corner-row.selected { border-color: #ffd166; border-left-color: #ffd166; }
+.outlet-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 11px; color: var(--muted);
+    background: var(--bg); border: 1px solid var(--border); border-left: 2px solid #1d9bf0; border-radius: 4px;
+    padding: 5px 8px; margin-bottom: 6px; }
+.outlet-row b { color: #1d9bf0; margin-right: 2px; }
+.outlet-row select, .outlet-row input[type=number] { font-size: 11px; padding: 2px 3px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px; }
+.outlet-row input[type=number] { width: 62px; }
+.outlet-row .chk { margin: 0; }
+.outlet-row .hint { margin: 0; width: 100%; }
+.dim2d.fall { color: #7bd88f; background: rgba(10,26,14,0.8); }
+.dim2d.valley { color: #4ea8ff; font-size: 11px; }
+.dim2d.level { color: #ffd166; font-size: 10px; font-weight: 500; padding: 1px 4px; background: rgba(10,10,26,0.7); }
+.dim2d.warnlabel { color: #fff; background: rgba(200,40,40,0.85); }
+.dim2d.handle { color: #fff; background: #1d9bf0; border-color: #fff; border-radius: 10px; min-width: 20px; cursor: grab;
+    padding: 1px 5px; touch-action: none; }
+.dim2d.handle.outlet { background: #ff9f1c; }
+.dim2d.handle.corner { background: rgba(10,10,26,0.85); color: #ffd166; border-color: #ffd166; cursor: pointer; }
+.dim2d.handle.hot, .dim2d.edge-pick.hot { background: #ffd166; color: #111; }
+.dim2d.edge-pick { color: #ffd166; border-color: #ffd166; cursor: pointer; }
+.dim2d.edge-pick.gutter { color: #1d9bf0; border-color: #1d9bf0; }
+.dim2d.cut { color: #ff6b6b; border-color: #ff6b6b; cursor: pointer; }
+.dim2d.handle.cut { background: #ff4d4d; cursor: grab; }
+#place-widget, #cut-widget { bottom: auto; top: 76px; }

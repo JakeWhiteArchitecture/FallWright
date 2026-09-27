@@ -1,13 +1,14 @@
-/* CladForge 2D elevation view — the active elevation seen flat and square-on.
+/* Fallwright plan view — the active roof seen straight down, square to the building.
  *
  * The only way in is a smooth move from wherever the 3D camera is: the perspective
- * camera swings round on a sphere to face the elevation, then hands over to an
- * orthographic camera sized to what it saw, so there is no jump. Out is the reverse.
- * Nothing is recomputed either way: this is a view of the geometry already built.
+ * camera swings round on a sphere to look down the roof frame's n, turning so the frame's
+ * v is up the screen, then hands over to an orthographic camera sized to what it saw, so
+ * there is no jump. Out is the reverse. Nothing is recomputed either way. The same code
+ * still looks square-on at a wall frame (n horizontal, v up), as CladForge's 2D view did.
  */
 
 const VIEW2D_MS = 600;          // one transition
-const VIEW2D_DIMS = 1500;       // mm around the clad region kept clear for the dimensions
+const VIEW2D_DIMS = 1500;       // mm round the roof kept clear for the dimensions
 const VIEW2D_MARGIN = 1.1;      // and a little more round that
 const VIEW2D_FADE = 0.2;        // host model opacity while flat
 
@@ -21,21 +22,25 @@ function in2D() { return view2d.on; }
 
 const easeInOut = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
 function currentPose() {
     const off = camera.position.clone().sub(controls.target);
-    return { target: controls.target.clone(), dir: off.clone().normalize(), dist: off.length() };
+    return { target: controls.target.clone(), dir: off.clone().normalize(), dist: off.length(), up: camera.up.clone() };
 }
 
-// Square-on pose for an elevation: on its outward normal, looking at the middle of the clad
-// region {u0, u1, v0, v1}, far enough back that the region and its dimensions fit.
+// Square-on pose for a frame: on its n, looking at the middle of the region {u0, u1, v0,
+// v1} (at height *box.d* along n), with the frame's v up the screen, far enough back that
+// the region and its dimensions fit.
 function elevationPose(frame, box) {
     const M = frameMatrix(frame, 0);
-    const target = new THREE.Vector3((box.u0 + box.u1) / 2, (box.v0 + box.v1) / 2, 0).applyMatrix4(M);
-    const dir = new THREE.Vector3(frame.n[0], 0, -frame.n[1]).normalize();
+    const target = new THREE.Vector3((box.u0 + box.u1) / 2, (box.v0 + box.v1) / 2, box.d || 0).applyMatrix4(M);
+    const dir = v3(frame.n).normalize();
+    const up = v3(frame.v || [0, 0, 1]).normalize();
     const w = box.u1 - box.u0 + 2 * VIEW2D_DIMS, h = box.v1 - box.v0 + 2 * VIEW2D_DIMS;
     const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const dist = Math.max(h / 2 / tan, w / 2 / (tan * camera.aspect)) * VIEW2D_MARGIN;
-    return { target, dir, dist, w, h };
+    return { target, dir, dist, w, h, up };
 }
 
 // Move the perspective camera from pose a to pose b. The direction turns on the sphere
@@ -51,12 +56,17 @@ function animatePose(a, b, done) {
     const start = performance.now();
     controls.enabled = false;
     controls.enableDamping = false;
+    const upA = a.up || WORLD_UP, upB = b.up || WORLD_UP;
     const step = now => {
         const t = easeInOut(Math.min(1, (now - start) / VIEW2D_MS));
         const dir = a.dir.clone().applyQuaternion(new THREE.Quaternion().slerp(q, t));
         const target = a.target.clone().lerp(b.target, t);
         camera.position.copy(target).addScaledVector(dir, a.dist + (b.dist - a.dist) * t);
-        camera.up.set(0, 1, 0);
+        // Turn "up" across too: looking straight down, world up is along the view and
+        // lookAt has nothing to go on, so the plan's up is the frame's v.
+        let up = upA.clone().lerp(upB, t);
+        if (up.lengthSq() < 1e-6 || Math.abs(up.clone().normalize().dot(dir)) > 0.999) up = upB.clone();
+        camera.up.copy(up.normalize());
         controls.target.copy(target);
         camera.lookAt(target);
         if (t < 1) { view2d.anim = requestAnimationFrame(step); return; }
@@ -79,7 +89,7 @@ function goOrtho(pose) {
     Object.assign(orthoCamera, { left: -W / 2, right: W / 2, top: H / 2, bottom: -H / 2 });
     orthoCamera.zoom = Math.min(W / pose.w, H / pose.h) / VIEW2D_MARGIN;
     orthoCamera.position.copy(camera.position);
-    orthoCamera.up.set(0, 1, 0);
+    orthoCamera.up.copy(pose.up || WORLD_UP);
     orthoCamera.lookAt(pose.target);
     orthoCamera.updateProjectionMatrix();
     controls.object = orthoCamera;
@@ -96,15 +106,14 @@ function goPerspective() {
     const H = (orthoCamera.top - orthoCamera.bottom) / orthoCamera.zoom;
     const dir = orthoCamera.position.clone().sub(controls.target).normalize();
     camera.position.copy(controls.target).addScaledVector(dir, H / 2 / tan);
-    camera.up.set(0, 1, 0);
+    camera.up.copy(orthoCamera.up);
     camera.lookAt(controls.target);
     controls.object = camera;
     controls.enableRotate = true;
     controls.update();
 }
 
-// Fade the host model, hide every other elevation's cladding, and show the dimensions
-// whatever the legend says. Undone on the way out.
+// Fade the host model and hide every other roof's buildup. Undone on the way out.
 function apply2DLook(on) {
     if (on && !view2d.faded.length) {
         modelGroup.traverse(o => {
@@ -117,12 +126,9 @@ function apply2DLook(on) {
         view2d.faded = [];
     }
     filter2D();
-    dimGroup.visible = on || layerVisible.dims;
-    // Flat, the labels are HTML over the view (dims2d.js); the sprites are for 3D.
-    for (const o of dimGroup.children) if (o.isSprite) o.visible = !on;
 }
 
-// Called after every render of the cladding too, since a preview rebuilds it.
+// Called after every render of the buildup too, since a preview rebuilds it.
 function filter2D() {
     for (const layer of cladGroup.children)
         for (const o of layer.children) o.visible = !view2d.on || o.userData.elevation === view2d.name;
@@ -155,7 +161,8 @@ function exit2D() {
     view2d.on = false;
     apply2DLook(false);
     const saved = view2d.saved, off = saved.pos.clone().sub(saved.target);
-    animatePose(currentPose(), { target: saved.target, dir: off.clone().normalize(), dist: off.length() }, () => {
+    animatePose(currentPose(), { target: saved.target, dir: off.clone().normalize(), dist: off.length(), up: WORLD_UP }, () => {
+        camera.up.copy(WORLD_UP);
         camera.position.copy(saved.pos);
         controls.target.copy(saved.target);
         controls.update();
@@ -170,6 +177,7 @@ function reset2D() {
     controls.enabled = true;
     if (!view2d.on) return;
     goPerspective();
+    camera.up.copy(WORLD_UP);
     view2d.on = false;
     apply2DLook(false);
 }
