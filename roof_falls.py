@@ -8,12 +8,21 @@ edge and t = distance along it:
 
     e_k(p) = max(b1 - t, 0, t - b2)
     f_k(p) = max((s - W) / G, e_k / Gc)
-    firring depth(p) = min over the sumps whose edge faces p (s >= 0) of r_k + f_k(p)
+    firring depth(p) = min over the sumps of r_k + f_k(p)
 
-f_k is a max of four planes, so the surface is a min of maxes of planes and every facet is
-exactly planar. The facets are built with Shapely: each sump splits into a main-fall piece
-and two cricket pieces by half-planes, and each piece is cut where another sump is lower.
-The sump rectangles come out of the region first; they are built separately.
+f_k is a max of four planes, so the surface is a min of maxes of planes: continuous, every
+facet exactly planar, and every pitch meets its neighbours on the straight line where their
+planes cross, which is the hip, valley or ridge drawn on plan. The facets are built with
+Shapely: each sump splits into a main-fall piece and two cricket pieces by half-planes, and
+each piece is cut where another sump is lower. The sump rectangles come out of the region
+first; they are built separately.
+
+The requirements take the min only over the sumps whose edge faces p (s >= 0). As a hard
+cut that makes the surface jump wherever an edge's line runs across the roof (the inner
+corner of an L), so the pitches either side would not meet. It is not needed for the
+surface: behind its edge a sump's main fall is below its crickets, so f_k is the cricket
+there and carries on continuously. Facing is kept for what it means, which is reach: a part
+of the roof whose governing sump does not face it is reported as no outlet reaching it.
 
 Also here: the sump datum (rims and drops), the creases (valleys, hips, ridges) with their
 falls, 25 mm depth contours, spot levels, the trapped water trace, and the finished level
@@ -23,7 +32,7 @@ structure (the top of the joists).
 
 import math
 
-from shapely import set_precision
+from shapely import set_precision, make_valid, unary_union as grid_union
 from shapely.geometry import Polygon, LineString, Point, box
 from shapely.ops import unary_union, linemerge
 from shapely.prepared import prep
@@ -228,9 +237,9 @@ def _convex(bbox, fs, ties=()):
 # ── the surface ──────────────────────────────────────────────────────────
 
 def build_facets(roof, p, sumps):
-    """(facets, unreached, merged) for the roof. Each facet: {"poly", "plane", "sump",
-    "kind"}; unreached is the geometry no drain edge faces; merged counts the small
-    facets folded into a neighbour."""
+    """(facets, unreached, small) for the roof. Each facet: {"poly", "plane", "sump",
+    "kind"}; unreached is the part of the roof its governing sump's edge does not face;
+    small counts the facets under MIN_FACET_AREA, which are kept exact (see _mark_small)."""
     region = region_of(roof)
     if region.is_empty:
         return [], None, 0
@@ -248,21 +257,21 @@ def build_facets(roof, p, sumps):
         for kind in kinds:
             me = pl[kind]
             others = [pl[o] for o in ("main", "left", "right", "flat") if o != kind]
-            convex = _convex(bbox, [s["facing"]] + [_sub(me, o) for o in others], ties=range(1, 4))
+            convex = _convex(bbox, [_sub(me, o) for o in others], ties=range(0, 3))
             if not convex:
                 continue
-            shape = _intersection(Polygon(convex), R)
+            shape = _valid(_intersection(Polygon(convex), R))
             if shape is None or shape.is_empty:
                 continue
             for t in sumps:
                 if t is s:
                     continue
-                # Where sump t is lower: facing it, and below this plane on all four of its
-                # planes. An exact tie goes to the sump listed first.
-                lower = _convex(bbox, [t["facing"]] + [_sub(me, q) for q in t["planes"].values()],
-                                ties=range(1, 5) if t["k"] < s["k"] else ())
+                # Where sump t is lower: below this plane on all four of its planes. An exact
+                # tie goes to the sump listed first.
+                lower = _convex(bbox, [_sub(me, q) for q in t["planes"].values()],
+                                ties=range(0, 4) if t["k"] < s["k"] else ())
                 if lower:
-                    shape = _difference(shape, Polygon(lower))
+                    shape = _valid(_difference(shape, Polygon(lower)))
                     if shape is None or shape.is_empty:
                         break
             if shape is None or shape.is_empty:
@@ -270,11 +279,28 @@ def build_facets(roof, p, sumps):
             pieces.append({"shape": shape, "plane": me, "sump": s["k"],
                            "kind": "main" if kind == "main" else "cricket"})
     facets = _merge_coplanar(pieces)
-    facets, merged = _merge_small(facets)
-    covered = unary_union([f["poly"] for f in facets]) if facets else Polygon()
-    unreached = _difference(R, covered) if facets else R
-    unreached = [pg for pg in iter_polygons(unreached) if pg.area > NOISE_AREA] if unreached is not None else []
-    return facets, unreached, merged
+    small = _mark_small(facets)
+    covered = grid_union([f["poly"] for f in facets], grid_size=GRID) if facets else Polygon()
+    unreached = [_difference(R, covered)] if facets else [R]
+    by_k = {s["k"]: s for s in sumps}
+    for f in facets:
+        facing = _convex(bbox, [by_k[f["sump"]]["facing"]])
+        behind = _difference(f["poly"], Polygon(facing)) if facing else f["poly"]
+        unreached.append(behind)
+    unreached = [pg for g in unreached if g is not None for pg in iter_polygons(g) if pg.area > NOISE_AREA]
+    return facets, unreached, small
+
+
+def _valid(geom):
+    """Only the polygons of *geom*, repaired where GEOS hands back an invalid multipolygon
+    (parts touching along a line). Left invalid, a later union can silently drop a whole
+    part, and the roof gets a hole between two facets."""
+    if geom is None or geom.is_empty:
+        return geom
+    if not geom.is_valid:
+        geom = make_valid(geom)
+    parts = [pg for pg in iter_polygons(geom) if pg.area > 1e-6]
+    return unary_union(parts) if parts else Polygon()
 
 
 def _plane_key(pl):
@@ -289,8 +315,11 @@ def _merge_coplanar(pieces):
         groups.setdefault(_plane_key(pc["plane"]), []).append(pc)
     facets = []
     for key, group in groups.items():
-        shape = unary_union([g["shape"] for g in group])
-        shape = set_precision(shape, GRID)
+        # Joined part by part with snap-rounding on the facet grid. A plain union of polygons
+        # whose edges nearly coincide is not robust in GEOS: it can return less than the parts
+        # (a whole part dropped, depending on their order), which leaves a hole in the roof.
+        parts = [pg for g in group for pg in iter_polygons(_valid(g["shape"]))]
+        shape = set_precision(_valid(grid_union(parts, grid_size=GRID)), GRID)
         for pg in iter_polygons(shape):
             if pg.area <= 1.0:
                 continue
@@ -300,42 +329,13 @@ def _merge_coplanar(pieces):
     return facets
 
 
-def _merge_small(facets):
-    """Fold every facet under MIN_FACET_AREA into the neighbour it shares most boundary
-    with. It takes that neighbour's plane, which lies above the true surface there (the
-    surface is a lower envelope), so the firrings only get deeper. Returns (facets, the
-    number merged that were big enough to report). A small facet with no neighbour stays
-    and is marked, so the check can report it."""
-    merged, alone = 0, set()
-    while True:
-        small = [f for f in facets if f["poly"].area < MIN_FACET_AREA and id(f) not in alone]
-        if not small:
-            return facets, merged
-        f = min(small, key=lambda x: x["poly"].area)
-        best, share = None, 0.0
-        for g in facets:
-            if g is f:
-                continue
-            try:
-                length = f["poly"].boundary.intersection(g["poly"].buffer(0.05)).length
-            except Exception:   # noqa: BLE001
-                length = 0.0
-            if length > share + 1e-6:
-                best, share = g, length
-        if best is None:
-            if f["poly"].area < NOISE_AREA:
-                facets.remove(f)            # an isolated sliver: nothing to fold it into
-            else:
-                f["small"] = True
-                alone.add(id(f))
-            continue
-        joined = set_precision(unary_union([best["poly"], f["poly"]]), GRID)
-        parts = sorted(iter_polygons(joined), key=lambda pg: -pg.area)
-        best["poly"] = parts[0] if parts else best["poly"]
-        facets.remove(f)
-        if f["poly"].area >= NOISE_AREA:
-            merged += 1
-            best["merged"] = best.get("merged", 0) + 1
+def _mark_small(facets):
+    """Facets under MIN_FACET_AREA are kept exactly as they are and marked for the check.
+    Folding one into a neighbour would give it the neighbour's plane, and the two pitches
+    would then no longer meet on the line drawn between them."""
+    for f in facets:
+        f["small"] = f["poly"].area < MIN_FACET_AREA
+    return sum(1 for f in facets if f["small"])
 
 
 # ── what the surface gives ───────────────────────────────────────────────
@@ -702,14 +702,14 @@ def analyse(roof, params_or_p, full=True):
     creases only, recomputed on every animation frame while a sump or outlet moves."""
     p = params_or_p if "above_firrings" in params_or_p else _parse(params_or_p)
     sumps, outlets = resolve(roof, p)
-    facets, unreached, merged = build_facets(roof, p, sumps)
+    facets, unreached, small = build_facets(roof, p, sumps)
     edge_of = {s["k"]: s["edge"] for s in sumps}
     for i, f in enumerate(facets):
         f["id"] = "F%d" % (i + 1)
         f["edge"] = edge_of.get(f["sump"])
         ratio, direction = fall_of(f["plane"])
         f["fall"], f["dir"] = ratio, direction
-    out = {"sumps": sumps, "outlets": outlets, "facets": facets, "unreached": unreached, "merged": merged,
+    out = {"sumps": sumps, "outlets": outlets, "facets": facets, "unreached": unreached, "small": small,
            "creases": creases(facets)}
     if not full:
         return out
@@ -738,7 +738,7 @@ def facet_json(f):
             "kind": f["kind"], "sump": f["sump"], "edge": f.get("edge"), "area": round(f["poly"].area, 1),
             "fall": round(f["fall"], 2) if f["fall"] else None, "label": fall_label(f["fall"]),
             "dir": [round(v, 6) for v in f["dir"]], "at": [round(c.x, 1), round(c.y, 1)],
-            "merged": f.get("merged", 0), "small": bool(f.get("small"))}
+            "small": bool(f.get("small"))}
 
 
 def sump_json(s, p, datum):

@@ -78,11 +78,12 @@ distance *s* in from that edge and *t* along it:
 ```
 e(p)            = max(b1 - t, 0, t - b2)
 f(p)            = max((s - W) / G, e / Gc)
-firring depth   = min over the sumps whose edge faces p of  r + f(p)
+firring depth   = min over the sumps of  r + f(p)
 ```
 
-f is a max of four planes, so the surface is a min of maxes of planes: every facet is exactly
-planar and every hip and valley straight. `roof_falls.build_facets` builds each sump's main
+f is a max of four planes, so the surface is a min of maxes of planes: continuous, every
+facet exactly planar, every hip and valley straight, and every pair of pitches meeting on
+the line drawn between them. `roof_falls.build_facets` builds each sump's main
 and cricket pieces from half-planes, cuts each where another sump is lower, merges coplanar
 neighbours, and snaps every facet to a 0.01 mm grid so neighbours share their vertices. The
 firring zone is one slab per facet, flat on the joists with its top on the falls, so two
@@ -101,7 +102,10 @@ done.
 |---|---|---|
 | One outlet, no sump | **Three facets, not four.** The requirements' own formula gives one main-fall plane, r + s/G, which does not depend on t, so the wedge between the two valleys is a single facet. The test follows the formula. | `tests/test_falls.py` |
 | Trapped water | From each facet's centroid and from just inside each of its corners, steepest descent in 50 mm steps. Each step tries the fall of every facet in reach and every pair of them, so water on a valley runs down the valley. Against a wall on the outline, water that has no fall along it stops (the re-entrant corner case). Against a hole, a kerb or a pipe, it divides and runs round. | `roof_falls.trapped` |
-| Small facets | A facet under 0.1 m² takes the plane of the neighbour it shares most boundary with. That plane lies above the true surface there (the surface is a lower envelope), so firrings only get deeper; the check reports it. | `roof_falls._merge_small` |
+| Pitches meet | Every facet is its plane's volume, split vertically where its top surface runs through a neighbour's: the seam is the line where the two planes cross, drawn on plan as the hip, valley or ridge. Nothing is allowed to cut a facet anywhere else, so along every seam both pitches are at the same height. A test builds 80 random roofs (rectangles, L-shapes, rooflights, mixed falls and sumps) and checks every seam, gaps, overlaps and every corner against the formula. | `roof_falls.build_facets`, `tests/test_falls.py` |
+| Drains that do not face a point | The requirements take the min only over sumps whose edge faces the point. As a hard cut that makes the surface jump where an edge's line crosses the roof (200 mm at the inner corner of an L), so the min is taken over every sump; behind its edge a sump's crickets carry on continuously. Facing is kept for reach: roof its governing sump does not face is hatched as no outlet reaching it. | `roof_falls.build_facets` |
+| Small facets | **Kept exact, not merged.** Folding a facet under 0.1 m² into a neighbour gives it the neighbour's plane, and the two pitches then no longer meet. The check warns about each one instead. | `roof_falls._mark_small`, `roof_checks` |
+| Joining facet pieces | With snap-rounding on the 0.01 mm facet grid. GEOS's plain union of near-coincident pieces can silently drop a piece, depending on their order: it left a 3.7 m² hole in one test roof. | `roof_falls._merge_coplanar` |
 | Sump at placement | Centred on its outlet, then shifted along the edge if it would run past an end. Once dragged or typed it is independent of the outlet. | `roof_falls.resolve` |
 | Walls on the deck | A wall that stands on the roof slab is cut out of the region at its foot, 10 mm above the structure, so its face becomes the edge. | `roof_extract`, `roof_edges.wall_feet` |
 | Edge coverage | A wall counts along an edge when its section covers at least half the edge. Partly walled edges are not split in v1. | `roof_edges.MIN_COVER` |

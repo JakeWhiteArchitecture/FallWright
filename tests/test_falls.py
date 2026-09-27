@@ -37,9 +37,10 @@ def outlet(edge="E1", offset=5000.0, kind="internal", sump=False, corner="a", **
     return o
 
 
-def formula(roof, p, x, y):
-    """The requirements' surface, written out independently of the engine:
-    min over facing sumps of r + max((s - W)/G, e/Gc)."""
+def formula(roof, p, x, y, facing=True):
+    """The requirements' surface, written out independently of the engine: min over the
+    sumps of r + max((s - W)/G, e/Gc). With *facing*, only the sumps whose edge faces the
+    point, as the requirements put it; on a convex roof the two are the same surface."""
     sumps, _o = resolve(roof, p)
     edges = {e["id"]: e for e in roof["edges"]}
     best = None
@@ -48,7 +49,7 @@ def formula(roof, p, x, y):
         ev, m, _L = edge_frame(e["a"], e["b"])
         sv = (x - e["a"][0]) * m[0] + (y - e["a"][1]) * m[1]
         t = (x - e["a"][0]) * ev[0] + (y - e["a"][1]) * ev[1]
-        if sv < -1e-6:
+        if facing and sv < -1e-6:
             continue
         ek = max(s["b1"] - t, 0.0, t - s["b2"])
         z = s["r"] + max((sv - s["W"]) / p["fall"], ek / p["cricket_fall"])
@@ -269,3 +270,81 @@ def test_valley_facets_share_the_mitre_exactly():
         for x, y in (v["a"], v["b"]):                            # same top along it
             assert [x, y] in [list(q) for q in fa["rings"][0]] and [x, y] in [list(q) for q in fb["rings"][0]]
             assert abs(plane_z(fa["top"], x, y) - plane_z(fb["top"], x, y)) < 1e-6
+
+
+# ── the pitches meet ─────────────────────────────────────────────────────
+# Every facet is its plane's volume, split vertically where its top runs through a
+# neighbour's: so along every seam the two planes give the same height, the facets cover
+# the roof with no gap or overlap, and every corner sits on the requirements' surface.
+
+def _seams_meet(roof, p):
+    import shapely
+    from roof_falls import region_of
+    a = analyse(roof, p, full=False)
+    facets = a["facets"]
+    region = region_of(roof)
+    rects = [s["rect"] for s in a["sumps"] if s.get("rect") is not None]
+    R = region.difference(shapely.unary_union(rects)) if rects else region
+    boundary = R.boundary
+    problems = []
+    for f in facets:
+        cs = list(f["poly"].exterior.coords)
+        for (x0, y0), (x1, y1) in zip(cs, cs[1:]):
+            for k in (0.1, 0.5, 0.9):
+                x, y = x0 + (x1 - x0) * k, y0 + (y1 - y0) * k
+                q = Point(x, y)
+                others = [g for g in facets if g is not f and g["poly"].distance(q) < 0.05]
+                if not others and boundary.distance(q) > 0.5:
+                    problems.append(("open seam", f["id"], round(x), round(y)))
+                for g in others:
+                    dz = abs(plane_z(g["plane"], x, y) - plane_z(f["plane"], x, y))
+                    if dz > 0.5:
+                        problems.append(("step", f["id"], g["id"], round(x), round(y), round(dz, 1)))
+    cover = shapely.unary_union([f["poly"] for f in facets], grid_size=0.01)
+    if R.difference(cover).area > 100:
+        problems.append(("gap", round(R.difference(cover).area)))
+    if sum(f["poly"].area for f in facets) - cover.area > 100:
+        problems.append(("overlap",))
+    for f in facets:
+        for x, y in f["poly"].exterior.coords:
+            if abs(plane_z(f["plane"], x, y) - formula(roof, p, x, y, facing=False)) > 0.1:
+                problems.append(("off the surface", f["id"], round(x), round(y)))
+    return problems
+
+
+def test_outlet_on_a_gutter_edge_leaves_no_hole():
+    """Regression: GEOS's union of near-coincident facet pieces dropped a 3.7 m² piece of
+    roof here, until the pieces were joined with snap-rounding."""
+    r = rect_roof()
+    r["outlets"] = [outlet(edge="E1", corner="b", offset=5673.39), outlet(edge="E4", offset=3455.70),
+                    outlet(edge="E2", offset=5925.46), outlet(edge="E3", offset=9914.19, sump=True, sump_w=450.0)]
+    r["edge_types"] = {"E4": "gutter"}
+    assert _seams_meet(r, _parse({"fall": 60, "cricket_fall": 50})) == []
+
+
+def test_l_roof_pitches_meet_across_the_inner_corner():
+    """The line of the L's inner edge runs across the roof. Cutting a drain off there (the
+    requirements' 'faces p') made a 200 mm step; the pitches now meet on plane crossings."""
+    r = l_roof()
+    r["outlets"] = [outlet(edge="E3", offset=5793.0, sump=True, sump_l=0, sump_w=300)]
+    r["edge_types"] = {"E2": "gutter"}
+    assert _seams_meet(r, _parse({"fall": 25, "cricket_fall": 30, "insulation_t": 80})) == []
+
+
+def test_pitches_meet_on_random_roofs():
+    import random
+    rng = random.Random(20260927)
+    hole = [[4000.0, 2500.0], [4000.0, 3700.0], [5200.0, 3700.0], [5200.0, 2500.0]]
+    for i in range(80):
+        base = rng.choice(["rect", "L", "hole"])
+        roof = l_roof() if base == "L" else rect_roof(holes=[hole] if base == "hole" else ())
+        ext = [e for e in roof["edges"] if e["ring"] == 0]
+        roof["outlets"] = [outlet(edge=e["id"], corner=rng.choice("ab"), offset=rng.uniform(0, e["length"]),
+                                  sump=rng.random() < 0.6, sump_l=rng.choice([0, 500, 800, 1500]),
+                                  sump_w=rng.choice([0, 300, 450, 700]))
+                           for e in (rng.choice(ext) for _k in range(rng.randint(1, 4)))]
+        if rng.random() < 0.3:
+            roof["edge_types"] = {rng.choice(ext)["id"]: "gutter"}
+        p = _parse({"fall": rng.choice([25, 30, 40, 60]), "cricket_fall": rng.choice([20, 30, 40, 50]),
+                    "insulation_t": rng.choice([60, 80, 120])})
+        assert _seams_meet(roof, p) == [], (i, base, roof["outlets"], roof.get("edge_types"))

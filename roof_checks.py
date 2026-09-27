@@ -196,11 +196,10 @@ def check_roof(p, roof, falls):
         add("Minimum firring depth", "pass" if mn >= MIN_FIRRING - 0.05 else "fail",
             "%.0f mm%s" % (mn, "" if mn >= MIN_FIRRING - 0.05 else " — under the %.0f mm minimum" % MIN_FIRRING),
             round(mn, 1))
-    merged = falls.get("merged") or 0
     small = [f["id"] for f in facets if f.get("small")]
-    if merged or small:
-        add("Facet size", "warn", "%s under 0.1 m²%s" % ("%d facet(s)" % merged if merged else ", ".join(small),
-            " merged into a neighbour" if merged else " with no neighbour to merge into"), merged or len(small))
+    if small:
+        add("Facet size", "warn", "%s under 0.1 m², kept exact so the pitches still meet on their hips "
+            "and valleys; nudge an outlet or sump to lose it" % ", ".join(small), len(small))
     elif facets:
         add("Facet size", "pass", "every facet at least 0.1 m²")
     return checks

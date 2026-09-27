@@ -25,7 +25,7 @@ def _falls_json(roof, falls, p, full=True):
                          for pg in falls["unreached"]]}
     if full:
         out.update({"contours": falls["contours"], "spots": falls["spots"], "ponding": falls["ponding"],
-                    "min_depth": falls["min_depth"], "max_depth": falls["max_depth"], "merged": falls["merged"],
+                    "min_depth": falls["min_depth"], "max_depth": falls["max_depth"], "small": falls["small"],
                     "edges": [{k: v for k, v in e.items()} for e in falls["edges"]]})
     return out
 
