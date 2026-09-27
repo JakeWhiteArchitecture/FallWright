@@ -115,3 +115,93 @@ def corner_payload(name="Elevation B"):
     a, b, c, d = w2(0, 0), w2(4000, 0), w2(4000, 3000), w2(0, 3000)
     return {"name": name, "faces": [[list(a), list(b), list(c)], [list(a), list(c), list(d)]],
             "outward": list(n2), "context": [], "options": {}}
+
+
+# ── Fallwright: synthetic roofs ─────────────────────────────────────────────
+# A flat roof 10000 x 6000 whose structure tops out at ROOF_Z, turned ROOF_ANGLE off the
+# world axes so the roof frame has something to square up to. Roof-local (x, y): x along
+# the long side, y across it, origin at the south-west corner of the structure's top.
+
+ROOF_ANGLE = math.radians(20.0)
+RU = (math.cos(ROOF_ANGLE), math.sin(ROOF_ANGLE), 0.0)
+RV = (-math.sin(ROOF_ANGLE), math.cos(ROOF_ANGLE), 0.0)
+ROOF_ORIGIN = (2000.0, -3000.0, 3000.0)
+ROOF_Z = ROOF_ORIGIN[2]
+
+
+def rworld(x, y, z=0.0):
+    """Roof-local (x, y, height above the structure) to IFC world."""
+    return [ROOF_ORIGIN[0] + RU[0] * x + RV[0] * y, ROOF_ORIGIN[1] + RU[1] * x + RV[1] * y, ROOF_ORIGIN[2] + z]
+
+
+def rbox(x0, y0, z0, x1, y1, z1):
+    """Closed box in roof-local coordinates, as world triangles."""
+    c = [rworld(x, y, z) for z in (z0, z1) for y in (y0, y1) for x in (x0, x1)]
+    # corners: 0 (x0,y0,z0) 1 (x1,y0,z0) 2 (x0,y1,z0) 3 (x1,y1,z0), 4..7 the same at z1
+    quads = [(0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5)]
+    tris = []
+    for a, b, cc, d in quads:
+        tris += [[c[a], c[b], c[cc]], [c[a], c[cc], c[d]]]
+    return tris
+
+
+def roof_top_faces(width=10000.0, depth=6000.0, hole=None):
+    """Top face of the structure, optionally with a rectangular hole (x0, y0, x1, y1)."""
+    if hole is None:
+        return [[rworld(0, 0), rworld(width, 0), rworld(width, depth)],
+                [rworld(0, 0), rworld(width, depth), rworld(0, depth)]]
+    x0, y0, x1, y1 = hole
+    tris = []
+    for a, b, c, d in ((0, 0, width, y0), (0, y1, width, depth), (0, y0, x0, y1), (x1, y0, width, y1)):
+        tris += [[rworld(a, b), rworld(c, b), rworld(c, d)], [rworld(a, b), rworld(c, d), rworld(a, d)]]
+    return tris
+
+
+def roof_payload(name="Roof 1", hole=(4000.0, 2500.0, 5200.0, 3700.0), pipe=True, parapet_rise=1000.0,
+                 wall_rise=3000.0, door=True):
+    """The sample roof: an abutment wall along the north side (y = 6000, rising wall_rise)
+    with a door in it, a parapet along the east side (x = 10000, rising parapet_rise), and
+    free edges south and west. A rooflight hole and a pipe through the deck."""
+    context = [
+        {"type": "IfcWall", "name": "North wall", "tris": rbox(-300, 6000, -3000, 10300, 6300, wall_rise)},
+        {"type": "IfcWall", "name": "East parapet", "tris": rbox(10000, 0, -3000, 10300, 6000, parapet_rise)},
+        {"type": "IfcSlab", "name": "Roof slab", "tris": rbox(0, 0, -250, 10000, 6000, 0)},
+    ]
+    if door:
+        context.append({"type": "IfcDoor", "name": "Roof door", "tris": rbox(2000, 6000, 360, 2900, 6300, 2460)})
+    if pipe:
+        context.append({"type": "IfcPipeSegment", "name": "SVP", "tris": rbox(8000, 1000, -500, 8110, 1110, 900)})
+    return {"name": name, "faces": roof_top_faces(hole=hole), "outward": [0.0, 0.0, 1.0],
+            "seeds": [rworld(1000, 1000)], "context": context, "options": {"penetrations": True}}
+
+
+def l_roof_payload(name="L roof"):
+    """An L-shaped roof with no walls: a 10000 x 4000 wing along x, and a 4000 x 6000 wing
+    going up from its west end (so the re-entrant corner is at (4000, 4000))."""
+    tris = [[rworld(0, 0), rworld(10000, 0), rworld(10000, 4000)], [rworld(0, 0), rworld(10000, 4000), rworld(0, 4000)],
+            [rworld(0, 4000), rworld(4000, 4000), rworld(4000, 10000)], [rworld(0, 4000), rworld(4000, 10000), rworld(0, 10000)]]
+    return {"name": name, "faces": tris, "outward": [0.0, 0.0, 1.0], "seeds": [], "context": [], "options": {}}
+
+
+def rect_roof(width=10000.0, depth=6000.0, holes=()):
+    """A bare extracted-roof record (no walls, every edge a free edge), built directly rather
+    than through extraction so the falls tests see exact numbers. Edges run anticlockwise
+    from the origin: E1 south (y = 0), E2 east, E3 north, E4 west."""
+    from roof_edges import classify
+    ext = [[0.0, 0.0], [width, 0.0], [width, depth], [0.0, depth]]
+    polygons = [{"exterior": ext, "holes": [list(h) for h in holes]}]
+    frame = {"origin": [0.0, 0.0, 0.0], "u": [1.0, 0.0, 0.0], "v": [0.0, 1.0, 0.0], "n": [0.0, 0.0, 1.0]}
+    return {"ok": True, "name": "Roof 1", "frame": frame, "datum_z": 0.0, "polygons": polygons,
+            "width": width, "height": depth, "edges": classify(polygons, []), "holes": []}
+
+
+def l_roof():
+    """L-shaped bare roof record: see l_roof_payload. Edges anticlockwise from the origin:
+    E1 south, E2 east (x = 10000), E3 (y = 4000 back to x = 4000), E4 (x = 4000 up), E5 north
+    of the upper wing, E6 west."""
+    from roof_edges import classify
+    ext = [[0.0, 0.0], [10000.0, 0.0], [10000.0, 4000.0], [4000.0, 4000.0], [4000.0, 10000.0], [0.0, 10000.0]]
+    polygons = [{"exterior": ext, "holes": []}]
+    frame = {"origin": [0.0, 0.0, 0.0], "u": [1.0, 0.0, 0.0], "v": [0.0, 1.0, 0.0], "n": [0.0, 0.0, 1.0]}
+    return {"ok": True, "name": "L roof", "frame": frame, "datum_z": 0.0, "polygons": polygons,
+            "width": 10000.0, "height": 10000.0, "edges": classify(polygons, []), "holes": []}
