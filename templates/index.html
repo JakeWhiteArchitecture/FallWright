@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CladForge — Cladding setting-out from IFC</title>
-    <meta name="description" content="Import an IFC model, pick wall faces, and generate the cladding support buildup and board setting-out as IFC4X3 geometry and DXF elevations. Free, runs in your browser.">
+    <title>Fallwright — Warm flat roof falls from IFC</title>
+    <meta name="description" content="Import an IFC model, pick the top of the roof structure, place the outlets, and get the falls, firrings, warm roof buildup and edge details as IFC4X3 geometry and a DXF falls plan with sections and details. Free, runs in your browser.">
     <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
@@ -12,8 +12,8 @@
       <div class="panel-scroll">
         <div class="panel-top">
             <div class="logo-container">
-                <h1>CladForge</h1>
-                <p class="logo-tagline">Cladding buildup and setting-out from an IFC model · IFC4X3 + DXF out</p>
+                <h1>Fallwright</h1>
+                <p class="logo-tagline">Warm flat roof buildup, falls and edge details from an IFC model · IFC4X3 + DXF out</p>
             </div>
 
             <div class="section">
@@ -27,205 +27,134 @@
             </div>
 
             <div class="section">
-                <h2>2 · Elevations</h2>
+                <h2>2 · Region</h2>
                 <div id="pick-toggle" class="turn-toggle">
-                    <button class="turn-btn active" data-value="pick" onclick="setPickMode(true)">Pick faces</button>
+                    <button class="turn-btn active" data-value="pick" onclick="setPickMode(true)">Pick roof</button>
                     <button class="turn-btn" data-value="orbit" onclick="setPickMode(false)">Orbit only</button>
                 </div>
-                <p class="hint">Click a wall face to add its coplanar patch to the active elevation; click again to remove it. Click a face round a corner and it becomes the next elevation in the chain, with the coursing carried round. Faces that don't meet the chain start a new one. Openings punched by the importer become holes.</p>
-                <p class="hint">Stuck or misbehaving? Run <b>cladforge()</b> in the browser console for the engine state and a log of every extraction.</p>
-                <p class="hint">Picking generates nothing on its own. When the chain is complete, press <b>Enter</b> or use <b>Make chain</b> at the top right of the view to choose the cladding and build it. After that the whole panel edits live.</p>
-                <label class="chk"><input type="checkbox" id="penetrations" checked onchange="state.elevations.forEach(runExtraction)"> Subtract penetrations crossing the face</label>
-                <div id="elevation-list"></div>
+                <p class="hint">Click the top face of the roof structure: the top of the joists, where the firrings sit. Click more faces on the same level to merge them in; a click on another level starts a second roof, built separately. Openings voided in the slab become holes; walls on the deck and anything crossing it are cut out.</p>
+                <p class="hint">Picking generates nothing on its own. Press <b>Enter</b> or <b>Build</b> at the top right of the view to place the outlets and choose the buildup. After that the whole panel edits live. Stuck? Run <b>fallwright()</b> in the browser console.</p>
+                <label class="chk"><input type="checkbox" id="penetrations" checked onchange="state.roofs.forEach(runExtraction)"> Cut out penetrations crossing the deck</label>
+                <div id="roof-list"></div>
                 <div class="row">
-                    <button class="btn btn-secondary btn-sm" onclick="newElevation()">+ New elevation</button>
-                    <button class="btn btn-secondary btn-sm" onclick="deleteElevation()">Delete active</button>
+                    <button class="btn btn-secondary btn-sm" onclick="newRoof()">+ New roof</button>
+                    <button class="btn btn-secondary btn-sm" onclick="deleteRoof()">Delete active</button>
                 </div>
+            </div>
+
+            <div class="section">
+                <h2>Edges</h2>
+                <p class="hint">Detected from the walls: a wall rising 1500 mm or more above the structure is an abutment, a lower one a parapet, no wall a free edge. Change any edge here; set free edges to <i>gutter</i> where an eaves gutter takes the water.</p>
+                <div id="edge-list"></div>
+            </div>
+
+            <div class="section">
+                <h2>Outlets</h2>
+                <div class="row pair">
+                    <div class="field"><label>Number of outlets</label><input type="number" id="n_outlets" value="0" min="0" max="50" onchange="setOutletCount(this.value)"></div>
+                    <button class="btn btn-secondary btn-sm" onclick="startPlacing(activeRoof())">Place in plan</button>
+                </div>
+                <div id="outlet-list"></div>
+                <p class="hint">Offsets run along the edge from the corner the outlet was placed from. A hopper goes through a wall (abutment or parapet) and always has a sump. In plan view, drag a sump or its ends and front edge, or an outlet within its sump.</p>
             </div>
         </div><!-- /panel-top -->
 
         <div class="panel-bot">
             <div class="section">
-                <h2>3 · Buildup</h2>
+                <h2>Falls</h2>
                 <div class="row pair">
-                    <label class="chk" style="flex:1"><input type="checkbox" id="sheathing" onchange="updatePreview()"> Sheathing board</label>
-                    <div class="field"><label>Thickness <span class="unit">6–18 mm</span></label><input type="number" id="sheathing_t" value="9" min="6" max="18" oninput="onNumeric()"></div>
-                </div>
-                <div class="row pair">
-                    <label class="chk" style="flex:1"><input type="checkbox" id="insulation" onchange="updatePreview()"> External insulation</label>
-                    <div class="field"><label>Thickness <span class="unit">25–200 mm</span></label><input type="number" id="insulation_t" value="100" min="25" max="200" step="5" oninput="onNumeric()"></div>
-                </div>
-                <div class="field"><label>Cladding type</label>
-                    <div id="cladding-type" class="turn-toggle">
-                        <button class="turn-btn active" data-value="plank" onclick="selectToggle('cladding-type','plank'); onTypeChange()">Plank</button>
-                        <button class="turn-btn" data-value="panel" onclick="selectToggle('cladding-type','panel'); onTypeChange()">Panel</button>
-                    </div>
+                    <div class="field"><label>Main fall <span class="unit">1:</span></label><input type="number" id="fall" value="40" min="10" max="200" oninput="onNumeric()"></div>
+                    <div class="field"><label>Cricket fall <span class="unit">1:</span></label><input type="number" id="cricket_fall" value="40" min="10" max="200" oninput="onNumeric()"></div>
+                    <div class="field"><label>Min firring <span class="unit">mm</span></label><input type="number" id="d_min" value="25" min="0" max="100" oninput="onNumeric()"></div>
                 </div>
                 <div class="row pair">
-                    <div class="field"><label>Batten width <span class="unit">mm</span></label><input type="number" id="batten_w" value="50" min="25" max="100" oninput="onNumeric()"></div>
-                    <div class="field"><label>Batten depth <span class="unit">mm</span></label><input type="number" id="batten_d" value="38" min="19" max="100" oninput="onNumeric()"></div>
-                    <div class="field"><label>Centres <span class="unit">300–600</span></label><input type="number" id="batten_centres" value="400" min="300" max="600" step="10" oninput="onNumeric()"></div>
+                    <div class="field"><label>Sump insulation <span class="unit">mm</span></label><input type="number" id="sump_ins" value="50" min="10" max="200" oninput="onNumeric()"></div>
+                    <div class="field"><label>Min drop <span class="unit">mm</span></label><input type="number" id="sump_drop" value="75" min="10" max="300" oninput="onNumeric()"></div>
+                    <div class="field"><label>Sump firrings <span class="unit">mm</span></label><input type="number" id="sump_firring" value="0" min="0" max="200" oninput="onNumeric()"></div>
                 </div>
                 <div class="row pair">
-                    <div class="field"><label>Counter-battens</label>
-                        <select id="counter_batten" onchange="updatePreview()">
-                            <option value="auto" selected>Derived from orientation</option>
-                            <option value="yes">Force on</option>
-                            <option value="no">Force off</option>
-                        </select>
-                    </div>
-                    <div class="field"><label>C/B width</label><input type="number" id="cb_w" value="50" min="25" max="100" oninput="onNumeric()"></div>
-                    <div class="field"><label>C/B depth</label><input type="number" id="cb_d" value="38" min="19" max="100" oninput="onNumeric()"></div>
-                    <div class="field"><label>C/B centres</label><input type="number" id="cb_centres" value="600" min="300" max="900" step="10" oninput="onNumeric()"></div>
+                    <div class="field"><label>New sump L <span class="unit">along</span></label><input type="number" id="sump_l" value="500" min="0" max="10000" step="10" oninput="onNumeric()"></div>
+                    <div class="field"><label>New sump W <span class="unit">out</span></label><input type="number" id="sump_w" value="300" min="0" max="3000" step="10" oninput="onNumeric()"></div>
+                    <div class="field"><label>Sump fall <span class="unit">1:</span></label><input type="number" id="sump_fall" value="40" min="10" max="200" oninput="onNumeric()"></div>
                 </div>
-                <div class="field"><label>Splash zone above abutments <span class="unit">0–300 mm, 150 recommended</span></label>
-                    <input type="number" id="splash" value="150" min="0" max="300" step="10" oninput="onNumeric()"></div>
-                <div class="field"><label>Corners <span class="unit">where a chain turns</span></label>
-                    <div id="corner-type" class="turn-toggle">
-                        <button class="turn-btn active" data-value="mitre" onclick="selectToggle('corner-type','mitre'); renderElevationList(); updatePreview()">Mitred</button>
-                        <button class="turn-btn" data-value="lap" onclick="selectToggle('corner-type','lap'); renderElevationList(); updatePreview()">Master lap</button>
-                        <button class="turn-btn" data-value="butt" onclick="selectToggle('corner-type','butt'); renderElevationList(); updatePreview()">Square</button>
-                    </div>
-                    <p class="hint" style="margin:4px 0 0">Mitred cuts the whole buildup on the corner's bisector. Master lap is a panel detail: one board runs past and the other butts behind it, leaving the joint gap exposed. Pick which board masters on the corner row above.</p>
-                </div>
-                <div class="derived">Battens: <span id="d-battens">Vertical</span><br>Cover / bay: <span id="d-cover">158 mm</span></div>
+                <p class="hint">The sump is the datum: its rim is the drain line the falls run up from. The main roof firrings are never under the minimum and thicken only where a sump needs the rim higher; otherwise the insulation sets the step into the sump.</p>
             </div>
 
             <div class="section">
-                <h2>Openings</h2>
-                <label class="chk"><input type="checkbox" id="set_out_from_openings" checked onchange="updatePreview()"> Set out from the structural openings</label>
-                <label class="chk"><input type="checkbox" id="reveals" checked onchange="updatePreview()"> Reveal linings, mitred to the face panel</label>
-                <div class="field"><label>Cavity closer width <span class="unit">solid timber, both jambs</span></label>
-                    <input type="number" id="closer_w" value="50" min="25" max="150" step="5" oninput="onNumeric()"></div>
-                <p class="hint">Panel edges land on the window jambs and each span between them is split into equal bays no wider than the maximum panel, so a window that does not suit the panel centres still sets the joints. A solid timber cavity closer goes to both vertical sides of every opening. Heads and sills are not lined.</p>
-            </div>
-
-            <div class="section" id="panel-section">
-                <h2>4 · Panels</h2>
+                <h2>Buildup</h2>
                 <div class="row pair">
-                    <div class="field"><label>Thickness <span class="unit">6–20</span></label><input type="number" id="panel_t" value="9" min="6" max="20" oninput="onNumeric()"></div>
-                    <div class="field"><label>Max width <span class="unit">600–1500</span></label><input type="number" id="panel_w" value="1200" min="600" max="1500" step="10" oninput="onNumeric()"></div>
+                    <div class="field"><label>Deck <span class="unit">mm WBP ply</span></label><input type="number" id="deck_t" value="18" min="6" max="40" oninput="onNumeric()"></div>
+                    <div class="field"><label>VCL <span class="unit">mm</span></label><input type="number" id="vcl_t" value="4" min="0.5" max="20" step="0.5" oninput="onNumeric()"></div>
+                    <div class="field"><label>Insulation <span class="unit">mm</span></label><input type="number" id="insulation_t" value="120" min="10" max="400" step="5" oninput="onNumeric()"></div>
                 </div>
                 <div class="row pair">
-                    <div class="field"><label>Max height <span class="unit">1200–3000</span></label><input type="number" id="panel_h" value="2400" min="1200" max="3000" step="10" oninput="onNumeric()"></div>
-                    <div class="field"><label>Joint gap <span class="unit">0–15</span></label><input type="number" id="panel_gap" value="10" min="0" max="15" oninput="onNumeric()"></div>
-                </div>
-                <p class="hint">Panel width drives batten centres: joints land on a batten, intermediate battens keep spans under 600 mm. Horizontal joints are open joints at the gap. Noggins behind them are only generated where counter-battens are on: between vertical battens a noggin sits on the drainage plane and dams it.</p>
-            </div>
-
-            <div class="section" id="plank-section">
-                <h2>4 · Planks</h2>
-                <div class="field"><label>Plank orientation</label>
-                    <div id="plank-orient" class="turn-toggle">
-                        <button class="turn-btn active" data-value="horizontal" onclick="selectToggle('plank-orient','horizontal'); onTypeChange()">Horizontal</button>
-                        <button class="turn-btn" data-value="vertical" onclick="selectToggle('plank-orient','vertical'); onTypeChange()">Vertical</button>
-                    </div>
+                    <div class="field" style="flex:2"><label>Membrane <span class="unit">name, free text</span></label><input type="text" id="membrane_name" value="Single-ply membrane" oninput="onNumeric()"></div>
+                    <div class="field"><label>Thickness <span class="unit">mm</span></label><input type="number" id="membrane_t" value="2" min="0.5" max="20" step="0.5" oninput="onNumeric()"></div>
                 </div>
                 <div class="row pair">
-                    <div class="field"><label>Face width <span class="unit">75–250</span></label><input type="number" id="plank_w" value="150" min="75" max="250" step="5" oninput="onNumeric()"></div>
-                    <div class="field"><label>Thickness <span class="unit">12–32</span></label><input type="number" id="plank_t" value="20" min="12" max="32" oninput="onNumeric()"></div>
+                    <div class="field"><label>Upstand <span class="unit">mm above finish</span></label><input type="number" id="upstand" value="150" min="25" max="600" step="5" oninput="onNumeric()"></div>
+                    <div class="field"><label>Insulation upstand <span class="unit">mm</span></label><input type="number" id="ins_upstand_t" value="50" min="0" max="150" oninput="onNumeric()"></div>
+                    <div class="field"><label>Kerb width <span class="unit">mm</span></label><input type="number" id="kerb_w" value="50" min="25" max="200" oninput="onNumeric()"></div>
+                    <div class="field"><label>Check kerb <span class="unit">mm</span></label><input type="number" id="check_kerb_h" value="50" min="10" max="300" oninput="onNumeric()"></div>
                 </div>
-                <div class="row pair">
-                    <div class="field"><label>Lap <span class="unit">0 = open joint</span></label><input type="number" id="plank_lap" value="0" min="0" max="50" oninput="onNumeric()"></div>
-                    <div class="field"><label>Joint gap <span class="unit">0–15</span></label><input type="number" id="plank_gap" value="8" min="0" max="15" oninput="onNumeric()"></div>
-                    <div class="field"><label>Max length <span class="unit">1800–6000</span></label><input type="number" id="plank_len" value="3600" min="1800" max="6000" step="100" oninput="onNumeric()"></div>
-                </div>
-                <p class="hint">Lap &gt; 0 courses at face width minus lap (lapped profiles); lap = 0 courses at face width plus gap (open-jointed). Courses start at the splash zone and work up. End joints land on battens and stagger course to course.</p>
-            </div>
-
-            <div class="section">
-                <h2>5 · Setting-out</h2>
-                <div class="field"><label>Active elevation</label><select id="active-elev" onchange="setActive(parseInt(this.value))"></select></div>
-                <div class="field"><label>Horizontal offset <span class="unit">± half a bay, this elevation, live</span></label>
-                    <div class="slider-row"><input type="range" id="offset" min="-300" max="300" step="5" value="0" oninput="onSlider(this.value)"><span id="offset-val">0 mm</span></div></div>
-                <label class="chk"><input type="checkbox" id="live-trim" checked onchange="updatePreview()"> Trim at openings in the preview (always trimmed on export)</label>
+                <p class="hint">The insulation thickness comes from a U-value calculation done elsewhere. Every layer above the firrings is constant thickness, so the finished roof has the same falls.</p>
             </div>
 
             <div class="section">
                 <h2>Checks</h2>
                 <div id="checks-container" class="checks"></div>
-                <p class="scope-note">CladForge does not check compliance with Approved Document B and does not generate, position or verify cavity barriers. Cavity barrier provision remains a design decision outside the tool. Board counts are setting-out information, not a quantity take-off. Verify all outputs before use.</p>
+                <p class="scope-note">Fallwright does not calculate U-values or condensation risk (Parts L and C), does not check roof covering fire performance (Part B), and does not design the deck, loads or wind uplift fixing. The falls scheme is design intent; the firrings are cut on site to suit the joists from the depths given. Schedules are setting-out information, not a quantity take-off. Verify all outputs before use.</p>
             </div>
         </div><!-- /panel-bot -->
       </div>
 
       <div class="panel-actions">
           <button class="btn btn-primary" id="ifc-btn" data-label="Download IFC4X3" onclick="downloadIFC()">Download IFC4X3</button>
-          <button class="btn btn-secondary" id="dxf-btn" data-label="Download DXF elevations" onclick="downloadDXF()">Download DXF elevations</button>
+          <button class="btn btn-secondary" id="dxf-btn" data-label="Export DXF (sections, then download)" onclick="downloadDXF()">Export DXF (sections, then download)</button>
           <a class="btn btn-secondary" style="text-align:center;text-decoration:none;font-size:12px;padding:7px" href="https://www.jakewhitearchitecture.com" target="_blank" rel="noopener">Jake White Architecture</a>
       </div>
     </div>
 
     <div class="viewport" id="viewport">
-        <div class="viewport-info">Orbit: drag · Zoom: scroll · Pan: right-drag · Click a wall face to pick · E: 2D elevation</div>
+        <div class="viewport-info">Orbit: drag · Zoom: scroll · Pan: right-drag · Click the top of the roof structure · E: plan view</div>
         <div class="legend">
-            <label><input type="checkbox" checked onchange="setLayerVisible('sheathing', this.checked)"><i style="background:#d9c9a3"></i> Sheathing</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('firring', this.checked)"><i style="background:#c8a87c"></i> Firrings</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('deck', this.checked)"><i style="background:#d9b77a"></i> Deck</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('vcl', this.checked)"><i style="background:#6d6d8a"></i> VCL</label>
             <label><input type="checkbox" checked onchange="setLayerVisible('insulation', this.checked)"><i style="background:#e8d86a"></i> Insulation</label>
-            <label><input type="checkbox" checked onchange="setLayerVisible('counter_batten', this.checked)"><i style="background:#8b7355"></i> Counter-battens</label>
-            <label><input type="checkbox" checked onchange="setLayerVisible('batten', this.checked)"><i style="background:#c8a87c"></i> Battens</label>
-            <label><input type="checkbox" checked onchange="setLayerVisible('cladding', this.checked)"><i style="background:#6b8fa3"></i> Cladding &amp; reveals</label>
-            <label><input type="checkbox" checked onchange="setLayerVisible('closer', this.checked)"><i style="background:#a0522d"></i> Cavity closers</label>
-            <label><input type="checkbox" checked onchange="setLayerVisible('dims', this.checked)"><i style="background:#00ccff"></i> Dimensions</label>
-            <label><input type="checkbox" checked onchange="setLayerVisible('faces', this.checked)"><i style="background:#2a9d8f"></i> Picked wall faces</label>
-            <label><input type="checkbox" checked onchange="setLayerVisible('outline', this.checked)"><i style="background:#8ea3b8"></i> Outline &amp; splash</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('membrane', this.checked)"><i style="background:#3d4450"></i> Membrane &amp; upstands</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('trims', this.checked)"><i style="background:#9aa7b4"></i> Trims &amp; flashings</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('kerbs', this.checked)"><i style="background:#a0522d"></i> Kerbs</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('outlets', this.checked)"><i style="background:#1d9bf0"></i> Outlets &amp; sumps</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('facets', this.checked)"><i style="background:#4ea8ff"></i> Facets, valleys, hips</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('arrows', this.checked)"><i style="background:#7bd88f"></i> Fall arrows</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('contours', this.checked)"><i style="background:#5d6b7a"></i> Depth contours</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('levels', this.checked)"><i style="background:#ffd166"></i> Levels</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('faces', this.checked)"><i style="background:#2a9d8f"></i> Picked face</label>
+            <label><input type="checkbox" checked onchange="setLayerVisible('outline', this.checked)"><i style="background:#8ea3b8"></i> Outline &amp; holes</label>
         </div>
         <div class="dim-overlay" id="dim-overlay">
-            <div><span class="dim-label">Elevation:</span> <span class="dim-value" id="dim-size">--</span></div>
-            <div><span class="dim-label">Batten centres:</span> <span class="dim-value" id="dim-centres">--</span></div>
-            <div><span class="dim-label">Courses:</span> <span class="dim-value" id="dim-courses">--</span></div>
-            <div><span class="dim-label">Closing cuts:</span> <span class="dim-value" id="dim-cuts">--</span></div>
-            <div><span class="dim-label">Boards:</span> <span class="dim-value" id="dim-boards">--</span></div>
+            <div><span class="dim-label">Roof:</span> <span class="dim-value" id="dim-size">--</span></div>
+            <div><span class="dim-label">Facets:</span> <span class="dim-value" id="dim-facets">--</span></div>
+            <div><span class="dim-label">Firring depth:</span> <span class="dim-value" id="dim-depth">--</span></div>
+            <div><span class="dim-label">Outlets:</span> <span class="dim-value" id="dim-outlets">--</span></div>
+            <div><span class="dim-label">Falls:</span> <span class="dim-value" id="dim-falls">--</span></div>
         </div>
         <div class="status-chip busy" id="status-chip">Loading…</div>
         <div class="dim2d-layer" id="dim2d-layer"></div>
         <div class="dim2d-editor" id="dim2d-editor" style="display:none"></div>
         <div class="view-actions">
-            <button id="view-2d" onclick="toggle2D()" disabled title="Look at the active elevation flat and square-on (E)">2D elevation</button>
-            <button id="make-chain" style="display:none" onclick="openWizard()">Make chain</button>
+            <button id="view-2d" onclick="togglePlan()" disabled title="Look straight down on the active roof (E)">Plan view</button>
+            <button id="make-roof" style="display:none" onclick="openWizard()">Build roof</button>
         </div>
-        <div class="edit-widget" id="level-picker" style="display:none">
-            <div class="edit-head"><span id="level-title">Click a point for the TOP of the cladding</span>
-                <span class="wiz-step" id="level-step">Level 1 of 2</span></div>
-            <p class="hint" id="level-note" style="margin:2px 0 8px"></p>
-            <div class="wiz-actions" style="justify-content:flex-end">
-                <button class="btn btn-secondary btn-sm" onclick="dismissLevels()">Dismiss</button>
-            </div>
-        </div>
-        <div class="edit-widget" id="edit-widget" style="display:none">
-            <div class="edit-head"><span id="edit-title">Chain 1</span>
-                <span><button class="mini" id="edit-2d" onclick="toggle2D()">2D elevation</button>
-                <button class="mini" onclick="closeEditWidget()" title="Close (Esc)">✕</button></span></div>
-            <div class="slider-row">
-                <button class="mini" onclick="nudgeOffset(-5)" title="Shift left 5 mm">◀</button>
-                <input type="range" id="edit-offset" min="-300" max="300" step="5" value="0" oninput="onEditSlide(this.value)">
-                <button class="mini" onclick="nudgeOffset(5)" title="Shift right 5 mm">▶</button>
-                <span id="edit-offset-val">0 mm</span>
-            </div>
-            <p class="hint" style="margin:2px 0 0">Shifts this elevation's battens and boards, ± half a bay. Joints stop carrying round a corner once its two faces are offset differently. Click another clad face to edit that one.</p>
-            <p class="hint" id="edit-datum" style="margin:2px 0 0"></p>
-        </div>
+        <div class="edit-widget" id="place-widget" style="display:none"></div>
+        <div class="edit-widget" id="cut-widget" style="display:none"></div>
     </div>
 
-    <div id="course-dialog" role="dialog" aria-modal="true" aria-label="Course height">
+    <div id="roof-wizard" role="dialog" aria-modal="true" aria-label="Build roof">
         <div class="reminder-dialog">
-            <div class="wiz-head"><span class="reminder-heading" id="course-title">Course height</span></div>
-            <p class="hint" id="course-where"></p>
-            <div class="field"><label>Course height <span class="unit">mm, centre to centre</span></label>
-                <input type="number" id="course-value" step="1" onkeydown="if (event.key === 'Enter') applyCourse(document.getElementById('course-chain').style.display === 'none' ? 'one' : 'chain')"></div>
-            <p class="hint">A chain is set out as one run, so its joints carry round the corners. Applying to a single elevation breaks that on this one.</p>
-            <div class="wiz-actions">
-                <button class="btn btn-secondary btn-sm" onclick="closeCourseDialog()">Cancel</button>
-                <button class="btn btn-secondary btn-sm" id="course-reset" onclick="resetCourse()">Reset</button>
-                <button class="btn btn-secondary btn-sm" id="course-one" onclick="applyCourse('one')">This elevation only</button>
-                <button class="btn btn-primary btn-sm" id="course-chain" onclick="applyCourse('chain')">Whole chain</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="chain-wizard" role="dialog" aria-modal="true" aria-label="Make chain">
-        <div class="reminder-dialog">
-            <div class="wiz-head"><span class="reminder-heading" id="wiz-title">Plank or panel?</span>
-                <span class="wiz-step" id="wiz-step">Step 1 of 3</span></div>
+            <div class="wiz-head"><span class="reminder-heading" id="wiz-title">How many outlets?</span>
+                <span class="wiz-step" id="wiz-step">Step 1 of 10</span></div>
             <p class="hint" id="wiz-chain"></p>
             <div id="wiz-body"></div>
             <div class="wiz-actions">
@@ -238,7 +167,7 @@
     <div id="download-reminder" role="dialog" aria-modal="true" aria-label="Download Reminder">
         <div class="reminder-dialog">
             <div class="reminder-heading">Before you download</div>
-            <p class="reminder-text">CladForge is a preliminary design aid. The user must check all outputs for compliance with UK or other relevant local regulation or standard. The tool does not check Approved Document B and does not position cavity barriers. Schedules are setting-out information, not a quantity take-off.</p>
+            <p class="reminder-text">Fallwright is a preliminary design aid. The user must check all outputs for compliance with UK or other relevant local regulation or standard. It does not calculate U-values or condensation risk, check fire performance, or design the deck, loads or wind uplift fixing. The firrings are cut on site to suit the joists from the depths given. Schedules are setting-out information, not a quantity take-off.</p>
             <button class="btn btn-primary" onclick="confirmDownload()">Understood, proceed to download</button>
         </div>
     </div>
@@ -252,7 +181,7 @@
     <script src="static/view2d.js"></script>
     <script src="static/app.js"></script>
     <script src="static/wizard.js"></script>
-    <script src="static/dims2d.js"></script>
+    <script src="static/plan2d.js"></script>
     <script>initApp();</script>
 </body>
 </html>

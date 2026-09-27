@@ -1,7 +1,10 @@
-CladForge
+Fallwright
 Copyright 2026 Jake White Architecture
 
-Forked from StairSmith (geometry engine, export pipeline and UI shell)
+Forked from CladForge (IFC import, viewer, face picking, prism engine,
+IFC and DXF writers, wizard, 2D view)
+https://github.com/JakeWhiteArchitecture/CladForge
+which is itself forked from StairSmith (geometry engine, export pipeline and UI shell)
 https://github.com/JakeWhiteArchitecture/stairsmith
 and SunForm (web-ifc import and Three.js viewer)
 https://github.com/JakeWhiteArchitecture/sunform
