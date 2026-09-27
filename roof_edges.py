@@ -19,6 +19,7 @@ Coordinates: roof-local plan (u, v) mm, with heights relative to the structure (
 """
 
 import math
+import time
 
 from shapely.affinity import translate
 from shapely.geometry import Polygon
@@ -77,41 +78,77 @@ def _covered(part, a, e, length):
     return total
 
 
-def wall_records(context, frame, datum, shift):
+SLOW_MS = 500.0          # an element taking longer than this is flagged in the log
+
+
+def wall_records(context, frame, datum, shift=(0.0, 0.0), say=None, deadline=None, report=None):
     """Each wall and door near the roof as {"kind", "name", "section" (plan polygon at the
-    probe height), "top" (above the datum), "bbox" ...}. *shift* is the (u, v) the region
-    was moved by to put its corner at the local origin."""
+    probe height), "foot", "top" (above the datum), "bbox" ...}. *shift* is the (u, v) the
+    region was moved by to put its corner at the local origin; slice once and move the
+    records with shift_records rather than slicing again.
+
+    *say* logs each element as it is read (index/total, type, name, triangles, ms), flagging
+    any over SLOW_MS. Past *deadline* (a time.perf_counter() value) the loop stops and keeps
+    what it has. *report*, a dict, gets "total", "done", "timed_out" and "times"."""
     from fabric_extract import _to_local
     n, u = (0.0, 0.0, 1.0), tuple(frame["u"])
+    elements = [elem for elem in context or []
+                if ((elem.get("type") or "").upper() in WALL_TYPES or (elem.get("type") or "").upper() in DOOR_TYPES)
+                and elem.get("tris")]
+    report = report if report is not None else {}
+    report.update({"total": len(elements), "done": 0, "timed_out": False, "times": []})
     out = []
-    for elem in context or []:
+    for k, elem in enumerate(elements):
+        if deadline is not None and time.perf_counter() > deadline:
+            report["timed_out"] = True
+            break
         etype = (elem.get("type") or "").upper()
-        if etype not in WALL_TYPES and etype not in DOOR_TYPES:
-            continue
-        tris = elem.get("tris") or []
-        if not tris:
-            continue
+        t0 = time.perf_counter()
         try:
-            tris = [[tuple(float(c) for c in v) for v in tri] for tri in tris]
+            tris = [[tuple(float(c) for c in v) for v in tri] for tri in elem["tris"]]
             zs = [v[2] for tri in tris for v in tri]
             rec = {"kind": "door" if etype in DOOR_TYPES else "wall", "name": elem.get("name") or etype,
                    "type": elem.get("type") or etype, "top": max(zs) - datum, "bottom": min(zs) - datum}
             if rec["kind"] == "wall":
                 _s, touches, poly, _pts = _section(tris, n, datum + WALL_PROBE, u, "roof")
-                if not touches or poly is None or poly.is_empty:
-                    continue
-                rec["section"] = translate(poly, -shift[0], -shift[1])
-                # Its foot, just above the deck: a wall standing on the slab is cut out of
-                # the roof here, where a door higher up leaves no gap.
-                _s, touches, foot, _pts = _section(tris, n, datum + FOOT_PROBE, u, "roof")
-                rec["foot"] = translate(foot, -shift[0], -shift[1]) if touches and foot is not None else None
+                if touches and poly is not None and not poly.is_empty:
+                    rec["section"] = translate(poly, -shift[0], -shift[1])
+                    # Its foot, just above the deck: a wall standing on the slab is cut out
+                    # of the roof here, where a door higher up leaves no gap.
+                    _s, touches, foot, _pts = _section(tris, n, datum + FOOT_PROBE, u, "roof")
+                    rec["foot"] = translate(foot, -shift[0], -shift[1]) if touches and foot is not None else None
+                    out.append(rec)
             else:
                 pts = [_to_local(v, n, u, "roof") for tri in tris for v in tri]
                 xs, ys = [q[0] - shift[0] for q in pts], [q[1] - shift[1] for q in pts]
                 rec["bbox"] = (min(xs), min(ys), max(xs), max(ys))
-            out.append(rec)
+                out.append(rec)
         except Exception:   # noqa: BLE001 — one awkward element must not sink the rest
-            continue
+            pass
+        ms = (time.perf_counter() - t0) * 1000.0
+        report["done"] = k + 1
+        report["times"].append({"stage": "wall_records", "index": k + 1, "total": len(elements),
+                                "type": elem.get("type") or etype, "name": elem.get("name") or "",
+                                "tris": len(elem["tris"]), "ms": round(ms, 1)})
+        if say:
+            say("  walls %d/%d %s %r %d tris %.0f ms%s" % (k + 1, len(elements), elem.get("type") or etype,
+                elem.get("name") or "", len(elem["tris"]), ms, "  SLOW" if ms > SLOW_MS else ""))
+    return out
+
+
+def shift_records(records, dx, dy):
+    """The records moved by (-dx, -dy) on plan, as a fresh wall_records call with that
+    shift would give them, without slicing every wall again."""
+    out = []
+    for rec in records:
+        rec = dict(rec)
+        for key in ("section", "foot"):
+            if rec.get(key) is not None:
+                rec[key] = translate(rec[key], -dx, -dy)
+        if rec.get("bbox") is not None:
+            x0, y0, x1, y1 = rec["bbox"]
+            rec["bbox"] = (x0 - dx, y0 - dy, x1 - dx, y1 - dy)
+        out.append(rec)
     return out
 
 

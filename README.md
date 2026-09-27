@@ -204,6 +204,38 @@ fall, exports the DXF through its cutting planes and the IFC through the WASM wh
 the engine, and re-imports on the server. `VENDOR_DIR` serves the CDN runtimes from local
 copies (`<dir>/{pyodide,three,web-ifc,wasm-wheels,pypi}`) where the CDNs are unreachable.
 
+## Debugging a slow or stuck roof
+
+Extraction runs in Pyodide on the page's main thread, so while Python works the page is
+frozen: nothing repaints and `fallwright()` cannot run. These are the ways in:
+
+- **The console, live.** Python's output goes to the browser console a line at a time as it
+  is written, prefixed `[fallwright:py]`. Each stage prints its time as it ends (`plane fit`,
+  `plan union`, `wall records`, `wall feet`, `penetrations`, `cleanup`, `classify`, then
+  `done in`). Every nearby wall, door and possible penetration prints as it is read, with
+  its place in the loop, type, name, triangle count and milliseconds; one over 500 ms says
+  `SLOW`. Open the console before picking: the last line printed names what did not finish.
+- **The time limit.** Both loops over nearby elements stop after 20 s (`DEFAULT_BUDGET_S`
+  in `roof_extract.py`; `options.budget_s` in the payload overrides it, and 0 is a real
+  value). The roof comes back from what was read, with a warning such as "Ran out of time
+  reading walls and doors after 80 of 127 nearby elements — 47 skipped". Check the edges
+  next to anything skipped.
+- **`fallwright()`**, in the console once the page is back, dumps the engine state, each
+  roof with its warnings and `timing` (the stage times and the three slowest elements),
+  the last payload, and the log, which includes the Python lines.
+- **`fallwright.payload()`** downloads the last extraction payload as
+  `fallwright-payload-<roof>-<time>.json`. It is kept before Python runs, so it is there
+  even when Python never came back (reload the page, load the model, pick the roof again
+  with the console open, and save it as soon as the page responds).
+- **`python tests/replay.py <file>`** runs the saved payload through `extract_roof` in
+  ordinary Python with the logging on, and prints the result, the stage times and the
+  slowest elements. `--budget SECONDS` sets the time limit. This is where to profile a
+  slow model, e.g. `python -m cProfile -s cumtime tests/replay.py <file>`.
+
+Each wall is sliced once, at the probe height and at its foot, and moved with the region to
+its local origin afterwards. It used to be sliced a second time in the final frame, which on
+a roof with 127 walls round it was three quarters of the extraction.
+
 ## Limitations
 
 - One roof region per build; a second level is a second roof.
@@ -214,7 +246,8 @@ copies (`<dir>/{pyodide,three,web-ifc,wasm-wheels,pypi}`) where the CDNs are unr
   are not modelled or checked.
 - Cutting planes run square to the roof frame only.
 - Pyodide runs on the page's main thread, so a slow extraction freezes the page; the engine
-  is bounded (`CONTEXT_TRI_BUDGET`) and rebuilt if it dies (`restartEngine`).
+  is bounded (`CONTEXT_TRI_BUDGET`, the 20 s time limit) and rebuilt if it dies
+  (`restartEngine`). See **Debugging a slow or stuck roof**.
 
 ## Licence
 
