@@ -4,7 +4,7 @@
 // Run: node tests/smoke.js  (needs the Flask server on :8080; VENDOR_DIR where CDNs are blocked)
 const path = require('path');
 const fs = require('fs');
-let page = null, logs = [];
+let page = null, logs = [], logsAll = [];
 
 async function main() {
     const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -55,6 +55,7 @@ async function main() {
         });
     }
     page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ': ' + m.text().slice(0, 300)); });
+    page.on('console', m => logsAll.push(m.text()));
     page.on('pageerror', e => logs.push('pageerror: ' + e.message));
     page.on('requestfailed', r => logs.push('requestfailed: ' + r.url() + ' ' + (r.failure() && r.failure().errorText)));
     await page.goto('http://127.0.0.1:8080/', { waitUntil: 'load' });
@@ -89,6 +90,22 @@ async function main() {
     console.log('roof:', r.name, r.width, 'x', r.height, 'at', r.datum_z, 'holes', r.holes.map(h => h.kind).join(','),
                 'warnings', JSON.stringify(r.warnings));
     console.log('edges:', r.edges.filter(e => e.ring === 0).map(e => `${e.id} ${e.type}${e.doors.length ? ' +door sill ' + e.doors[0].sill : ''}`).join(' | '));
+    // Debugging a stuck roof: the engine's stage lines reached the console live, the dump
+    // carries the timing, and the payload saves to a file that replays offline.
+    const pyLines = logsAll.filter(l => l.startsWith('[fallwright:py]'));
+    console.log('live engine lines:', pyLines.length, '| stages seen:',
+                ['plane fit', 'plan union', 'wall records', 'wall feet', 'penetrations', 'cleanup', 'classify', 'done in']
+                    .map(s => s + ':' + pyLines.some(l => l.includes('Roof 1: ' + s))).join(' '),
+                '| per element:', pyLines.some(l => /walls \d+\/\d+ /.test(l)));
+    console.log('fallwright() timing:', await page.evaluate(() => { const d = fallwright(); const t = d.roofs[0].timing;
+        return t && Object.keys(t.stages).join(',') + ' | slowest ' + t.slowest.map(s => s.name + ' ' + s.ms + 'ms').join(', ')
+            + ' | last_payload ' + (d.last_payload && d.last_payload.roof); }));
+    const [saved] = await Promise.all([page.waitForEvent('download'), page.evaluate(() => fallwright.payload())]);
+    const savedPath = path.join(require('os').tmpdir(), saved.suggestedFilename());
+    await saved.saveAs(savedPath);
+    const replay = require('child_process').spawnSync(process.env.PYTHON || 'python', [path.join(__dirname, 'replay.py'), savedPath], { encoding: 'utf8' });
+    console.log('payload:', saved.suggestedFilename(), '| replay exit', replay.status, '|',
+                (replay.stdout.match(/result: .*/) || ['no result'])[0]);
     console.log('nothing built yet:', await page.evaluate(() => cladGroup.children.length === 0 && !window._lastPreview));
 
     // Build: Enter opens the wizard; two outlets are placed in plan.

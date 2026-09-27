@@ -232,18 +232,29 @@ async function extractOnce(r) {
     r.error = null;
     renderRoofList();
     await new Promise(res => setTimeout(res, 30));   // let the status paint before Pyodide blocks the thread
+    // debug: the engine prints every stage and nearby element as it goes (to the console,
+    // see initPyodide), and gives up on nearby elements past its time limit (budget_s).
     const payload = { name: r.name, faces: tris, outward: r.picks[0].normal, context,
                       seeds: r.picks.map(p => p.point).filter(Boolean),
-                      options: { penetrations: document.getElementById('penetrations').checked } };
+                      options: { penetrations: document.getElementById('penetrations').checked, debug: true } };
+    const json = JSON.stringify(payload);
+    // Kept before Python runs, so a roof that never comes back can still be saved with
+    // fallwright.payload() and replayed offline with tests/replay.py.
+    state.lastPayload = { roof: r.name, at: new Date(), json };
+    log(`${r.name}: extracting — ${tris.length} faces, ${context.length} nearby elements, ${nTris} triangles, `
+        + `${dropped} dropped, payload ${Math.round(json.length / 1024)} kB`);
     try {
         const t0 = performance.now();
-        pyodide.globals.set('_payload_json', JSON.stringify(payload));
+        pyodide.globals.set('_payload_json', json);
         const out = await pyodide.runPythonAsync(`
 import json as _json
 from roof_extract import extract_roof as _ex
 _json.dumps(_ex(_json.loads(_payload_json)))`);
         r.result = JSON.parse(out);
+        r.timing = r.result.timing || null;        // kept even if the extraction failed
+        const slow = ((r.timing || {}).slowest || []).map(t => `${t.type} ${t.name} ${Math.round(t.ms)} ms`);
         log(`${r.name}: ${r.result.ok ? 'ok' : 'FAILED'} in ${Math.round(performance.now() - t0)} ms`
+            + (slow.length ? ` · slowest: ${slow.join(', ')}` : '')
             + (r.result.warnings || []).map(w => ' · ' + w).join(''));
         if (r.result.ok) {
             if (dropped) r.result.warnings.push(`${dropped} nearby element(s) left out to keep the engine within memory`);
@@ -640,13 +651,25 @@ _to_dxf(_p, _b, _c)`);
 }
 
 // ─── DIAGNOSTICS ───
-// The engine runs in a WASM runtime that can die outright, so the log is the only record
-// of what a stuck roof was doing. fallwright() dumps it with the state.
+// The engine runs in a WASM runtime that can die outright, and on the page's main thread,
+// so while Python works nothing here can run. What it prints reaches the console as it is
+// written ([fallwright:py] lines, see initPyodide), which is the live view; the log keeps
+// the record, and fallwright() dumps it with the state once the page is back.
 const LOG = [];
 function log(line) {
-    LOG.push(new Date().toISOString().slice(11, 23) + '  ' + line);
-    if (LOG.length > 300) LOG.shift();
+    remember(line);
     console.log('[fallwright]', line);
+}
+
+function remember(line) {
+    LOG.push(new Date().toISOString().slice(11, 23) + '  ' + line);
+    if (LOG.length > 500) LOG.shift();
+}
+
+// Python's stdout, a line at a time, straight to the console while Python is still running.
+function pyLine(line) {
+    console.log('[fallwright:py] ' + line);
+    remember('py  ' + line);
 }
 
 function fallwright() {
@@ -658,13 +681,35 @@ function fallwright() {
             name: r.name, built: r.built, picks: r.picks.length, outlets: r.outlets.length, n_outlets: r.nOutlets,
             state: r.result ? 'extracted' : (r.error ? 'error' : (r.pending ? 'queued' : (r._running ? 'running' : 'idle'))),
             error: r.error || null, warnings: (r.result && r.result.warnings) || [],
+            timing: r.timing || null,          // stage times and the three slowest elements
         })),
+        last_payload: state.lastPayload
+            ? { roof: state.lastPayload.roof, at: state.lastPayload.at.toISOString(),
+                kB: Math.round(state.lastPayload.json.length / 1024),
+                save: 'fallwright.payload() downloads it; python tests/replay.py <file> replays it' }
+            : null,
         log: LOG,
     };
     console.log(JSON.stringify(dump, null, 2));
     return dump;
 }
 window.fallwright = fallwright;
+
+// The last extraction payload as a file, for replaying a slow or stuck roof offline with
+// tests/replay.py. It is kept before Python runs, so it is there even if Python never
+// came back.
+fallwright.payload = function () {
+    const last = state.lastPayload;
+    if (!last) { console.warn('[fallwright] no extraction has run yet: pick a roof first'); return null; }
+    const stamp = last.at.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const name = `fallwright-payload-${last.roof.replace(/[^\w-]+/g, '-')}-${stamp}.json`;
+    const url = URL.createObjectURL(new Blob([last.json], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    console.log('[fallwright] saved ' + name + ' — replay it with: python tests/replay.py ' + name);
+    return name;
+};
 
 // ─── PYODIDE ───
 async function restartEngine() {
@@ -688,6 +733,10 @@ async function initPyodide() {
         setStatus('Loading Python runtime…', 'busy');
         pyodide = await loadPyodide();
         window.pyodide = pyodide;
+        // Python's prints go to the console a line at a time as they are written, not when
+        // the call returns, so a long extraction shows where it is while it runs.
+        pyodide.setStdout({ batched: pyLine });
+        pyodide.setStderr({ batched: line => { console.warn('[fallwright:py] ' + line); remember('py! ' + line); } });
         setStatus('Loading Shapely…', 'busy');
         await pyodide.loadPackage(['shapely', 'micropip']);
         const v = Date.now();
